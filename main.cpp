@@ -1,5 +1,6 @@
 #include <iostream>
 #include <set>
+#include <map>
 #include <vector>
 
 using Atom = int;
@@ -21,22 +22,24 @@ struct DP {
         std::cout << std::endl;
     }
 
-    void removeAllTautologyClauses(NormalForm& f) {
+    bool isTautologicClause(const Clause& clause) {
         std::set<Literal> seenLiterals;
-        for (auto it = f.begin(); it != f.end(); ) {
-            seenLiterals.clear();
-            bool tautology = false;
-            for (const Literal& literal : *it) {
-                if (seenLiterals.contains(-literal)) {
-                    tautology = true;
-                    break;
-                }
-                seenLiterals.insert(literal);
-            }
-
-            if (tautology) it = f.erase(it);
-            else ++it;
+        for (const Literal& literal : clause) {
+            if (seenLiterals.contains(-literal)) return true;
+            seenLiterals.insert(literal);
         }
+
+        return false;
+    }
+
+    void removeAllTautologyClauses(NormalForm& f) {
+        for (auto it = f.begin(); it != f.end(); )
+            if (isTautologicClause(*it)) it = f.erase(it);
+            else ++it;
+    }
+
+    bool isUnitClause(const Clause& clause) {
+        return clause.size() == 1;
     }
 
     void removeFalseLiterals(NormalForm& f) {
@@ -50,7 +53,7 @@ struct DP {
             if (clauseModified) {
                 it = f.erase(it);
                 if (!newClause.empty()) {
-                    if (newClause.size() == 1) {
+                    if (isUnitClause(newClause)) {
                         falseLiterals.insert(-(*newClause.begin()));
                         it = f.begin(); // mozda sada mozemo neki literal od ranije da uklonimo
                     }
@@ -63,7 +66,7 @@ struct DP {
 
     void removeUnitClauses(NormalForm& f) {
         for (auto it = f.begin(); it != f.end(); ) {
-            if (it->size() == 1) {
+            if (isUnitClause(*it)) {
                 Literal unitLiteral = *it->begin();
                 falseLiterals.insert(-unitLiteral);
                 it = f.erase(it);
@@ -75,26 +78,23 @@ struct DP {
             removeFalseLiterals(f);
     }
 
-    bool isPureLiteral(const Atom& atom, const NormalForm& f) {
-        bool found_pos = false, found_neg = false;
+    bool isPureLiteral(const Literal& literal, const NormalForm& f) {
         for (const Clause& clause : f)
-            for (const Literal& literal : clause)
-                if (std::abs(literal) == atom) {
-                    if (literal > 0) found_pos = true;
-                    else if (literal < 0) found_neg = true;
-                    if (found_pos && found_neg) return false;
-                }
+            if (clause.contains(-literal)) return false;
 
-        return found_pos ^ found_neg;
+        return true;
+    }
+
+    void removePureClausesByLiteral(NormalForm& f, const Literal& pureLiteral) {
+        for (auto it = f.begin(); it != f.end(); )
+            if (it->contains(pureLiteral)) it = f.erase(it);
+            else ++it;
     }
 
     void removePureClauses(NormalForm& f) {
-        for (const Literal& pureLiteral : literals)
-            if (isPureLiteral(std::abs(pureLiteral), f))
-                for (auto it = f.begin(); it != f.end(); )
-                    if (it->contains(pureLiteral)) it = f.erase(it);
-                    else ++it;
-
+        for (const Literal& literal : literals)
+            if (isPureLiteral(literal, f))
+                removePureClausesByLiteral(f, literal);
     }
 
     std::vector<Clause> allClausesWithGivenLiteral(const NormalForm& f, const Literal& target) {
@@ -109,10 +109,10 @@ struct DP {
         Clause result;
         if (first.contains(target) && second.contains(-target)) {
             for (const Literal& literal : first)
-                if (literal != target) result.insert(literal);
+                if (literal != target && literal != -target) result.insert(literal);
 
             for (const Literal& literal : second)
-                if (literal != -target) result.insert(literal);
+                if (literal != target && literal != -target) result.insert(literal);
         }
 
         return result;
@@ -148,51 +148,75 @@ struct DP {
         return formula;
     }
 
-    bool solve(NormalForm& f) {
-        // izbegavanje rekurzije
-        while(true) {
-            print(f);
+    std::map<Atom, unsigned> maximumOccurrence(NormalForm& f) {
+        std::map<Atom, unsigned> occurrence;
+        for (const Clause& clause : f)
+            for (const Literal& literal : clause)
+                occurrence[ std::abs(literal) ]++;
 
-            std::cout << "Pre uklanjanja klauza: " << f.size() << std::endl;
-            removeAllTautologyClauses(f);
-            std::cout << "Nakon uklanjanja tautologicnih klauza: " << f.size() << std::endl;
-            removeUnitClauses(f);
-            std::cout << "Nakon uklanjanja jedinicnih klauza: " << f.size() << std::endl;
-            removePureClauses(f);
-            std::cout << "Nakon uklanjanja cistih klauza: " << f.size() << std::endl;
+        return occurrence;
+    }
 
-            if (f.empty()) return true;
-            if (f.size() == 1 && f.begin()->empty()) return false;
+    bool solveRec(NormalForm& f) {
+        removePureClauses(f);
+        std::cout << "Nakon uklanjanja cistih klauza: " << literals.size() << " " << f.size() << std::endl;
 
-            bool foundNewClause = false;
-            // biramo literal po kome ce se rezolvirati
-            for (const Literal& literal : literals) {
-                auto clausesWith = allClausesWithGivenLiteral(f, literal);
-                auto clausesWithout = allClausesWithGivenLiteral(f, -literal);
+        if (f.empty()) return true;
+        if (f.size() == 1 && f.begin()->empty()) return false;
 
-                if (clausesWith.empty() || clausesWithout.empty()) continue;
-                foundNewClause = true;
+        // biramo literal po kome ce se rezolvirati po heuristici Maximum occurrence
+        bool foundNewClause = false;
+        std::map<Atom, unsigned> occurrence = maximumOccurrence(f);
+        for (auto it = occurrence.rbegin(); it != occurrence.rend(); ++it) {
+            const Atom literal = it->first;
 
-                // dodajemo rezolvente u skup klauza
-                for (const Clause& clause1 : clausesWith)
-                    for (const Clause& clause2 : clausesWithout) {
-                        Clause resolved = resolve(clause1, clause2, literal);
-                        if (resolved.empty()) return false;
-                        if (resolved.size() == 1) falseLiterals.insert(-(*resolved.begin()));
-                        else f.insert(resolved);
+            auto clausesWith = allClausesWithGivenLiteral(f, literal);
+            auto clausesWithout = allClausesWithGivenLiteral(f, -literal);
+
+            if (clausesWith.empty() || clausesWithout.empty()) continue;
+            foundNewClause = true;
+
+            // dodajemo rezolvente u skup klauza
+            for (const Clause& clause1 : clausesWith)
+                for (const Clause& clause2 : clausesWithout) {
+                    Clause resolved = resolve(clause1, clause2, literal);
+                    if (resolved.empty()) return false;
+                    if (isUnitClause(resolved)) {
+                        falseLiterals.insert(-(*resolved.begin()));
+                        removeFalseLiterals(f);
+                        return solveRec(f);
                     }
+                    if (!isTautologicClause(resolved)) f.insert(resolved);
+                }
 
-                // uklanjamo klauze pomocu kojih smo vrsili rezoluciju
-                for (const Clause& clause : clausesWith) f.erase(clause);
-                for (const Clause& clause : clausesWithout) f.erase(clause);
+            // uklanjamo klauze pomocu kojih smo vrsili rezoluciju
+            for (const Clause& clause : clausesWith) f.erase(clause);
+            for (const Clause& clause : clausesWithout) f.erase(clause);
 
-                std::cout << "Nakon rezolviranja: " << f.size() << std::endl;
-            }
-            std::cout << "#############################" << std::endl;
+            // azuriramo listu literala
+            literals.erase(literal);
+            literals.erase(-literal);
+            falseLiterals.erase(literal);
+            falseLiterals.erase(-literal);
 
-            // ako ne postoje nove rezolvente koje mozemo izvesti prijavljujemo zadovoljivost
-            if (!foundNewClause) return true;
+            std::cout << "Nakon rezolviranja: " << literals.size() << " " << f.size() << std::endl;
         }
+        std::cout << "#############################" << std::endl;
+
+        // ako ne postoje nove rezolvente koje mozemo izvesti prijavljujemo zadovoljivost
+        if (!foundNewClause) return true;
+
+        return solve(f);
+    }
+
+    bool solve(NormalForm& f) {
+        std::cout << "Pre uklanjanja klauza: " << literals.size() << " " << f.size() << std::endl;
+        removeAllTautologyClauses(f);
+        std::cout << "Nakon uklanjanja tautologicnih klauza: " << literals.size() << " " << f.size() << std::endl;
+        removeUnitClauses(f);
+        std::cout << "Nakon uklanjanja jedinicnih klauza: " << literals.size() << " " << f.size() << std::endl;
+
+        return solveRec(f);
     }
 };
 
