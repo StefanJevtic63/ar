@@ -1,4 +1,8 @@
 cmake-build-debug/
 .idea/
+html/
+latex/
 
 CMakeLists.txt
+Doxyfile
+dp_algorithm
