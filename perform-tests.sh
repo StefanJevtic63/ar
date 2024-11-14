@@ -34,4 +34,7 @@ for i in {1..10}; do
   fi
 done
 
+# Obrisi izvrsnu datoteku
+rm dp_algorithm
+
 echo "Testiranje je završeno. Rezultati su smešteni u folderu 'test-cases'."

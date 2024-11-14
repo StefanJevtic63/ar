@@ -77,11 +77,11 @@ struct DP {
     }
 
     /**
-     * @brief Removes all false literals from the clauses in the given normal form.
-     *
-     * @param f The normal form of the formula, which will be modified.
-     * @param conflict Bool value that becomes yes if the clause becomes empty.
-     */
+    * @brief Removes all false literals from the clauses in the given normal form.
+    *
+    * @param f The normal form of the formula, which will be modified.
+    * @param conflict Bool value that becomes yes if the clause becomes empty.
+    */
     void removeFalseLiterals(NormalForm& f, bool& conflict) {
         for (auto it = f.begin(); it != f.end(); ) {
             bool clauseModified = false;
@@ -164,12 +164,12 @@ struct DP {
     }
 
     /**
-     * @brief Removes pure clauses from the given normal form.
-     *
-     * This function iterates through all literals and removes the clauses containing the pure literals.
-     *
-     * @param f The normal form from which the pure clauses should be removed.
-     */
+    * @brief Removes pure clauses from the given normal form.
+    *
+    * This function iterates through all literals and removes the clauses containing the pure literals.
+    *
+    * @param f The normal form from which the pure clauses should be removed.
+    */
     void removePureClauses(NormalForm& f) {
         for (const Literal& literal : literals)
             if (isPureLiteral(literal, f))
@@ -260,14 +260,14 @@ struct DP {
     }
 
     /**
-     * @brief Computes the maximum occurrence count of each atom in the given normal form.
-     *
-     * This function iterates through all clauses in the normal form and counts the number of occurrences of each atom.
-     * The result is a map that associates each atom with its maximum occurrence count in the formula.
-     *
-     * @param f The normal form for which the maximum occurrence counts should be computed.
-     * @return std::map<Atom, unsigned> A map that associates each atom with its maximum occurrence count.
-     */
+    * @brief Computes the maximum occurrence count of each atom in the given normal form.
+    *
+    * This function iterates through all clauses in the normal form and counts the number of occurrences of each atom.
+    * The result is a map that associates each atom with its maximum occurrence count in the formula.
+    *
+    * @param f The normal form for which the maximum occurrence counts should be computed.
+    * @return std::map<Atom, unsigned> A map that associates each atom with its maximum occurrence count.
+    */
     std::map<Atom, unsigned> maximumOccurrence(NormalForm& f) {
         std::map<Atom, unsigned> occurrence;
         for (const Clause& clause : f)
@@ -278,13 +278,13 @@ struct DP {
     }
 
     /**
-     * @brief Returns a vector of currently present atoms in random order.
-     *
-     * This function iterates through currently present literals and extracts their atom representation.
-     * The result is a vector of atoms in random order.
-     *
-     * @return std::vector<Atom> Random order of atoms currently present in the formula.
-     */
+    * @brief Returns a vector of currently present atoms in random order.
+    *
+    * This function iterates through currently present literals and extracts their atom representation.
+    * The result is a vector of atoms in random order.
+    *
+    * @return std::vector<Atom> Random order of atoms currently present in the formula.
+    */
     std::vector<Atom> atomsRandomOrder() {
         std::vector<bool> visited(literals.size() + 1, false);
         std::vector<Atom> result;
@@ -311,23 +311,13 @@ struct DP {
     }
 
     /**
-     * @brief Recursively solves a Boolean satisfiability problem represented in normal form.
-     *
-     * @param f The normal form of the Boolean satisfiability problem to be solved.
-     * @return true if the problem is satisfiable, false otherwise.
-     */
-    bool solveRec(NormalForm& f) {
-        // Remove pure clauses from the normal form
-        removePureClauses(f);
-        // std::cout << "After removing pure clauses: " << literals.size() << " " << f.size() << std::endl;
-
-        // If the normal form is empty, the problem is satisfiable
-        if (f.empty()) return true;
-        // If the normal form has a single empty clause, the problem is unsatisfiable
-        if (f.size() == 1 && f.begin()->empty()) return false;
-
-        // Choose a literal to resolve on using the Maximum Occurrence heuristic
-        bool foundNewClause = false;
+    * @brief Removes all the possible variables from the formula.
+    *
+    * This function iterates through a collection of variables selected via heuristic and tries to remove them
+    * from the formula.
+    */
+    void removeVariables(NormalForm& f, bool& conflict) {
+        // Choose a variables to remove using the maximum occurrence heuristic
         std::map<Atom, unsigned> occurrence = maximumOccurrence(f);
         for (auto it = occurrence.rbegin(); it != occurrence.rend(); ++it) {
             const Atom literal = it->first;
@@ -336,26 +326,27 @@ struct DP {
             auto clausesWith = allClausesWithGivenLiteral(f, literal);
             auto clausesWithout = allClausesWithGivenLiteral(f, -literal);
 
-            // If any of the clause sets is empty, continue to the next literal
+            // If any of the sets of clauses is empty, continue to the next literal
             if (clausesWith.empty() || clausesWithout.empty()) continue;
-            foundNewClause = true;
 
-            // Add the resolvent clauses to the normal form
+            // Add the resolved clause to the formula
             for (const Clause& clause1 : clausesWith)
                 for (const Clause& clause2 : clausesWithout) {
                     Clause resolved = resolve(clause1, clause2, literal);
-                    if (resolved.empty()) return false;
+                    if (resolved.empty()) {
+                        conflict = true;   // UNSAT - empty clause
+                        return;
+                    }
                     if (isUnitClause(resolved)) {
                         falseLiterals.insert(-(*resolved.begin()));
-                        bool conflict;
                         removeFalseLiterals(f, conflict);
-                        if (conflict) return false;   // UNSAT - empty clause
-                        return solveRec(f);
+                        if (conflict) return;   // UNSAT - empty clause
+                        return;
                     }
                     if (!isTautologicClause(resolved)) f.insert(resolved);
                 }
 
-            // Remove the clauses used for resolution from the normal form
+            // Remove the clauses used for resolution from the formula
             for (const Clause& clause : clausesWith) f.erase(clause);
             for (const Clause& clause : clausesWithout) f.erase(clause);
 
@@ -364,33 +355,36 @@ struct DP {
             literals.erase(-literal);
             falseLiterals.erase(literal);
             falseLiterals.erase(-literal);
-
-            // std::cout << "After resolution: " << literals.size() << " " << f.size() << std::endl;
         }
-        // std::cout << "#############################" << std::endl;
-
-        // If no new resolvent clauses were found, the problem is satisfiable
-        if (!foundNewClause) return true;
-
-        return solve(f);
     }
 
     /**
-     * @brief Solves a Boolean satisfiability problem represented in normal form.
-     *
-     * @param f The normal form of the Boolean satisfiability problem to be solved.
-     * @return true if the problem is satisfiable, false otherwise.
-     */
+    * @brief Recursively solves a Boolean satisfiability problem represented in normal form.
+    *
+    * @param f The normal form of the Boolean satisfiability problem to be solved.
+    * @return true if the problem is satisfiable, false otherwise.
+    */
     bool solve(NormalForm& f) {
-        // std::cout << "Before removing clauses: " << literals.size() << " " << f.size() << std::endl;
+        // 1. Remove tautology clauses
         removeAllTautologyClauses(f);
-        // std::cout << "After removing tautology clauses: " << literals.size() << " " << f.size() << std::endl;
+
+        // 2. Remove unit clauses
         bool conflict;
         removeUnitClauses(f, conflict);
         if (conflict) return false;  // UNSAT - empty clause
-        // std::cout << "After removing unit clauses: " << literals.size() << " " << f.size() << std::endl;
 
-        return solveRec(f);
+        // 3. Remove pure clausese
+        removePureClauses(f);
+
+        // 4. Check if formula is SAT or UNSAT
+        if (f.empty()) return true;  // SAT - formula is empty
+        if (f.size() == 1 && f.begin()->empty()) return false;  // UNSAT - empty clause
+
+        // 5. Remove all possible variables
+            removeVariables(f, conflict);
+        if (conflict) return false;  // UNSAT - empty clause
+
+        return solve(f);
     }
 };
 
