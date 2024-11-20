@@ -37,4 +37,4 @@ done
 # Obrisi izvrsnu datoteku
 rm dp_algorithm
 
-echo "Testiranje je završeno. Rezultati su smešteni u folderu 'test-cases'."
+echo "Testiranje je završeno. Rezultati su smešteni u folderu $output_dir."

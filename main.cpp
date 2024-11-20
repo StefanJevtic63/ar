@@ -311,15 +311,33 @@ struct DP {
     }
 
     /**
-    * @brief Removes all the possible variables from the formula.
+    * @brief Recursively solves a Boolean satisfiability problem represented in normal form.
     *
-    * This function iterates through a collection of variables selected via heuristic and tries to remove them
-    * from the formula.
+    * @param f The normal form of the Boolean satisfiability problem to be solved.
+    * @return true if the problem is satisfiable, false otherwise.
     */
-    void removeVariables(NormalForm& f, bool& conflict) {
-        // Choose a variables to remove using the maximum occurrence heuristic
+    bool solve(NormalForm& f) {
+        bool conflict;
+
+        // Remove all possible variables
+        // Choose variables to remove using the maximum occurrence heuristic
         std::map<Atom, unsigned> occurrence = maximumOccurrence(f);
         for (auto it = occurrence.rbegin(); it != occurrence.rend(); ++it) {
+            // 1. Remove tautology clauses
+            removeAllTautologyClauses(f);
+
+            // 2. Remove unit clauses
+            removeUnitClauses(f, conflict);
+            if (conflict) return false;  // UNSAT - empty clause
+
+            // 3. Remove pure clausese
+            removePureClauses(f);
+
+            // 4. Check if formula is SAT or UNSAT
+            if (f.empty()) return true;  // SAT - formula is empty
+            if (f.size() == 1 && f.begin()->empty()) return false;  // UNSAT - empty clause
+
+            // Variable to be potentially eliminated
             const Atom literal = it->first;
 
             // Get the clauses containing the literal and the clauses containing the negation of the literal
@@ -334,14 +352,12 @@ struct DP {
                 for (const Clause& clause2 : clausesWithout) {
                     Clause resolved = resolve(clause1, clause2, literal);
                     if (resolved.empty()) {
-                        conflict = true;   // UNSAT - empty clause
-                        return;
+                        return false;   // UNSAT - empty clause
                     }
                     if (isUnitClause(resolved)) {
                         falseLiterals.insert(-(*resolved.begin()));
                         removeFalseLiterals(f, conflict);
-                        if (conflict) return;   // UNSAT - empty clause
-                        return;
+                        if (conflict) return false;   // UNSAT - empty clause
                     }
                     if (!isTautologicClause(resolved)) f.insert(resolved);
                 }
@@ -356,33 +372,6 @@ struct DP {
             falseLiterals.erase(literal);
             falseLiterals.erase(-literal);
         }
-    }
-
-    /**
-    * @brief Recursively solves a Boolean satisfiability problem represented in normal form.
-    *
-    * @param f The normal form of the Boolean satisfiability problem to be solved.
-    * @return true if the problem is satisfiable, false otherwise.
-    */
-    bool solve(NormalForm& f) {
-        // 1. Remove tautology clauses
-        removeAllTautologyClauses(f);
-
-        // 2. Remove unit clauses
-        bool conflict;
-        removeUnitClauses(f, conflict);
-        if (conflict) return false;  // UNSAT - empty clause
-
-        // 3. Remove pure clausese
-        removePureClauses(f);
-
-        // 4. Check if formula is SAT or UNSAT
-        if (f.empty()) return true;  // SAT - formula is empty
-        if (f.size() == 1 && f.begin()->empty()) return false;  // UNSAT - empty clause
-
-        // 5. Remove all possible variables
-            removeVariables(f, conflict);
-        if (conflict) return false;  // UNSAT - empty clause
 
         return solve(f);
     }
